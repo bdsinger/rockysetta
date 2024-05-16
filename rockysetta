@@ -14,6 +14,10 @@ On first run with no arguments, this script:
 2) saves it to the template directory as "${template}.yaml"
 3) uses it to run Intel based Linux on Apple Silicon via Rosetta2
 
+Continue running it with no arguments to reuse this initial config,
+unless you have a reason to play with Lima and make your own templates
+or multiple instances with different names.
+
 You can overwrite any existing ${template} template with the same one
 it creates on first run, by supplying the args "-t new${template}" 
 
