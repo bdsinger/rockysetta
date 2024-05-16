@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+
+usage() {
+  cat << USAGE
+
+Usage: $(basename $0) 
+   [-n|--name instance_name(${instance})]
+   [-t|--template template_name(${template})]
+   [-c|--container container_name(${container})]
+
+On first run with no arguments, this script:
+
+1) creates a lima "Rocky 9 using VZ" template
+2) saves it to the template directory as "${template}.yaml"
+3) uses it to run Intel based Linux on Apple Silicon via Rosetta2
+
+You can overwrite any existing ${template} template with the same one
+it creates on first run, by supplying the args "-t new${template}" 
+
+If the command runs successfully, the end result will be a
+root prompt (#) in ${container} for intel (x86_64)
+
+If you want to build containers for intel-based linux you can
+install apptainer at the prompt, via:
+
+dnf install -y epel-release
+dnf install -y apptainer
+
+USAGE
+}
+
+main() {
+
+[[ ! $(uname) =~ Darwin ]] || (( $(uname -r | cut -d. -f1) < 22 )) || [[ ! $(uname -m) =~ arm64 ]] && echo "Error: Requires Apple Silicon, macOS Ventura or higher" && exit 1
+
+instance=default
+template=custom
+container='rockylinux:9.3'
+
+(( $# > 0 )) && while [[ $1 ]]; do
+  case $1 in 
+    -h|--help) usage
+               exit 1
+               ;;
+    -n|--name) instance=$2
+               shift 2
+               ;;
+    -t|--template) template=$2
+                   shift 2
+                   ;;
+    -c|--container) container=$2
+                    shift 2
+                    ;;
+    *) echo "Error: unknown argument $1. Try -h or --help for usage"
+       exit 1
+       ;;
+  esac
+done
+
+limabin=$(command -v lima || echo no)
+[[ $limabin == no ]] && printf "\nError: lima not installed. You can install it via:\n\tbrew install lima\nusing Homebrew (https://brew.sh)\n\n" && exit 1
+
+[[ $HOMEBREW_PREFIX ]] && templatedir="${HOMEBREW_PREFIX}/share/lima/templates" || {
+  limahome=$(dirname $(dirname "$limabin"))
+  templatedir="$limahome/share/templates"
+  [[ ! -d $templatedir ]] && templatedir="$limahome/share/lima/templates"
+  [[ ! -d $templatedir ]] && printf "\nError: Could not find lima template dir. Please report this for a bug fix" && exit 1
+}
+
+templateleaf=$(sed 's/new//g' <<< $template)
+templatefile="${templatedir}/${templateleaf}.yaml"
+
+[[ -f $templatefile ]] && [[ ! $template =~ new ]] && action=using || action=creating
+[[ $action == creating ]] && [[ ! $template =~ custom ]] && printf "\nError: $templatefile missing, and cannot create new $template template.\n\n" && exit 1
+
+printf "\n${action} template file at:\n\t${templatefile}\n\n"
+
+if [[ $action == creating ]]; then
+  cat << NEWCUSTOM > "${templatefile}"
+vmType: "vz"
+rosetta:
+  enabled: true
+  binfmt: true
+images:
+- location: "https://dl.rockylinux.org/pub/rocky/9/images/aarch64/Rocky-9-GenericCloud.latest.aarch64.qcow2"
+  arch: "aarch64"
+mounts:
+- location: "~"
+  writable: true
+- location: "/tmp/lima"
+  writable: true
+mountType: "virtiofs"
+networks:
+- vzNAT: true
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    dnf install -y dbus-daemon
+    systemctl --user start dbus
+    systemctl --user enable --now dbus
+NEWCUSTOM
+
+  echo "Removing any existing ${instance} instances..."
+  limactl stop
+  limactl remove "$instance"
+  printf "\nHint: try 'softwareupdate --install-rosetta' if Lima gets stuck at 'Installing rosetta...'\n\n"
+fi
+
+created=$(limactl list | grep "$instance" 2>/dev/null)
+[[ $created ]] && echo "Using existing instance of $instance" || {
+  printf "\nCreating instance of $instance from template://${templateleaf}\n>>> Hit Return when prompted to accept new template <<<\n\n"
+  limactl create --name="${instance}" template://${templateleaf}
+}
+
+running=$(limactl list | grep "$instance" | grep Running)
+[[ $running ]] && echo "Instance $instance is already running" || {
+  printf "\nStarting $instance ...\n\n"
+  limactl start "${instance}"
+}
+
+# there is no rockylinux:latest as of 2024/05/14
+# must add --privileged to run apptainer inside docker
+# https://stackoverflow.com/a/71557211
+container_running=$(limactl shell "${instance}" nerdctl ps | grep "${container}")
+[[ $container_running ]] && printf "${container} container already running, check running terminals" || {
+  printf "\nRunning ${container} container within the ${instance} instance\n\n>>> For apptainer:\n\tdnf install -y epel-release\n\tdnf install -y apptainer\n                                    <<<\n\n"
+  limactl shell "${instance}" nerdctl run -it --rm --privileged --platform=linux/amd64 "${container}"
+}
+
+}
+
+main "$@"
