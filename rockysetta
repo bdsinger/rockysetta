@@ -16,7 +16,8 @@ On first run with no arguments, this script:
 
 Continue running it with no arguments to reuse this initial config,
 unless you have a reason to play with Lima and make your own templates
-or multiple instances with different names.
+or multiple instances with different names. If you prefer a different
+distro you can supply its dockerhub name via the -c option.
 
 You can overwrite any existing ${template} template with the same one
 it creates on first run, by supplying the args "-t new${template}" 
