@@ -62,7 +62,7 @@ container='rockylinux:9.3'
   esac
 done
 
-limabin=$(command -v lima || echo no)
+limabin=$(command -v limactl || echo no)
 [[ $limabin == no ]] && printf "\nError: lima not installed. You can install it via:\n\tbrew install lima\nusing Homebrew (https://brew.sh)\n\n" && exit 1
 
 [[ $HOMEBREW_PREFIX ]] && templatedir="${HOMEBREW_PREFIX}/share/lima/templates" || {
